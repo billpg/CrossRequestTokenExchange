@@ -6,10 +6,8 @@ using System.Text;
 namespace Test.LibHashBackAuth
 {
     [TestClass]
-    public class LibHashBackTests
+    public class LibHashBackParserTests
     {
-
-
         [TestMethod]
         public void ParseSampleFromReadMe_NoMods()
             => ParseReadMeSampleInternal();

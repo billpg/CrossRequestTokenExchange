@@ -198,25 +198,13 @@ namespace LibHashBackAuth
 
             /* All properties have been validated. 
              * Now find the expected hash from the original bytes. */
-            string expectedHash = CalculateHash(headerAsBytes, suppliedRounds.Value);
+            string expectedHash = InternalTools.CalculateHash(headerAsBytes, suppliedRounds.Value);
 
             /* Return collected properties as success result. */
             return ParseResult.Verification(verifyAsUrl, expectedHash);
         }
 
-        private static string CalculateHash(byte[] headerAsBytes, int rounds)
-        {
-            /* Perform the PBKDF2 argorithm as required by draft spec 4.0. */
-            byte[] hashAsBytes = Rfc2898DeriveBytes.Pbkdf2(
-                password: headerAsBytes.ToArray(),
-                salt: InternalTools.FIXED_SALT.ToArray(),
-                hashAlgorithm: HashAlgorithmName.SHA256,
-                iterations: rounds,
-                outputLength: 256 / 8);
 
-            /* Return hash in BASE-64. */
-            return Convert.ToBase64String(hashAsBytes);
-        }
 
         private static Uri? TryParseUrl(string url)
         {

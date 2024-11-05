@@ -1,6 +1,8 @@
 ﻿
+using Newtonsoft.Json.Linq;
 using System.Data;
 using System.Reflection.Metadata.Ecma335;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace LibHashBackAuth
@@ -20,7 +22,7 @@ namespace LibHashBackAuth
         /// <summary>
         /// A copy of public-draft 4.0's fixed salt in byte array form.
         /// </summary>
-        internal static readonly IList<byte> FIXED_SALT
+        internal static readonly IList<byte> fixedSalt
             = new List<byte>
             {
                 113, 218, 98, 9, 6, 165, 151, 157,
@@ -28,6 +30,21 @@ namespace LibHashBackAuth
                 150, 246, 69, 83, 216, 235, 21, 239,
                 162, 229, 139, 163, 6, 73, 175, 201
             }.AsReadOnly();
+
+
+        internal static string CalculateHash(byte[] headerAsBytes, int rounds)
+        {
+            /* Perform the PBKDF2 argorithm as required by draft spec 4.0. */
+            byte[] hashAsBytes = Rfc2898DeriveBytes.Pbkdf2(
+                password: headerAsBytes.ToArray(),
+                salt: fixedSalt.ToArray(),
+                hashAlgorithm: HashAlgorithmName.SHA256,
+                iterations: rounds,
+                outputLength: 256 / 8);
+
+            /* Return hash in BASE-64. */
+            return Convert.ToBase64String(hashAsBytes);
+        }
 
         /// <summary>
         /// Object returning the current time when called.
@@ -106,6 +123,17 @@ namespace LibHashBackAuth
 
             /* Return bytes. */
             return Convert.FromBase64String(enc.ToString());
+        }
+
+        internal static string GenerateUnus()
+        {
+            /* Generate 128 cryptographic quality random bits. */
+            using var rnd = RandomNumberGenerator.Create();
+            byte[] randomBytes = new byte[128 / 8];
+            rnd.GetBytes(randomBytes);
+
+            /* Encode those bytes as BASE64, including the trailing equals. */
+            return Convert.ToBase64String(randomBytes);
         }
     }
 }
