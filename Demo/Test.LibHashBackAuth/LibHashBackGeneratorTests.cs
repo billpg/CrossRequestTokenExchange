@@ -73,12 +73,29 @@ namespace Test.LibHashBackAuth
         }
 
         [TestMethod]
-        public void Generator_Simple()
+        public void Generator_RoundTrip()
         {
+            /* Generate an auth header. */
             var gen = new GeneratorHashBackAuth();
             gen.SetVerifyByQueryString("https://example.com/", "id");
             var auth = gen.GenerateAuthHeader("server.example");
-        }
 
+            /* Parse the header. */
+            var parser = new ParseHashBackAuth();
+            var capture = TestTools.ParserCapture.Set(parser);
+            var result = parser.Parse(auth.AuthHeader);
+
+            /* Check they match. */
+            Assert.AreEqual(result.ExpectedHash, auth.VerificationHash);
+
+            /* Check the captures, confirming the generator included
+             * the right strings. (Not checking Now because it varies.) */
+            Assert.AreEqual("server.example", capture.CapturedHost);
+            Assert.AreEqual(1, capture.CapturedRounds);
+            Assert.AreEqual(
+                "https://example.com/?id=" 
+                + auth.VerificationId.ToString().ToUpperInvariant(), 
+                capture.CapturedVerify?.ToString());
+        }
     }
 }

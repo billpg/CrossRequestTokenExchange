@@ -57,41 +57,14 @@ namespace Test.LibHashBackAuth
             }
         }
 
-    /// <summary>
-    /// Configure a parser to expect fixed supplied values.
-    /// </summary>
-    /// <param name="parser">Parser object to configre.</param>
-    /// <param name="expectedHost">Only acceptable host string.</param>
-    /// <param name="expectedNow">Only acceptable Now value.</param>
-    /// <param name="expectedVarify">Only acceptable Verify string.</param>
-    internal static void ConfigurePerExpectedValues(
-            ParseHashBackAuth parser, string expectedHost,
-            long expectedNow, string expectedVarify)
-        {
-            /* The Host property must have this string. */
-            parser.SetRequiredHost(expectedHost);
-            parser.IsNowValid = TestClock;
-            string? TestClock(long clock)
-                => clock == expectedNow ? null : "Clock is wrong.";
-            parser.IsVerifyValid = TestVerifyUrl;
-            string? TestVerifyUrl(Uri url)
-                => url.ToString() == expectedVarify ? null : "no!!";
-        }
-
-        private static void ConfigureAcceptAnything(ParseHashBackAuth parser)
-        {
-            parser.IsHostValid = x => null;
-            parser.IsNowValid = x => null;
-            parser.IsRoundsValid = x => null;
-            parser.IsVerifyValid = x => null;
-        }
-
-
         /// <summary>
         /// A reference to the normally private CalculateHash function.
         /// </summary>
         private static readonly MethodInfo calculateHashInternal
            = typeof(ParseHashBackAuth)
+              .Assembly
+              .GetTypes()
+              .Single(ty => ty.Name == "InternalTools")
               .GetMethods(BindingFlags.Static | BindingFlags.NonPublic)
               .Single(fn => fn.Name == "CalculateHash");
 

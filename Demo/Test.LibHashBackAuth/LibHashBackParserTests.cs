@@ -1,6 +1,7 @@
 using LibHashBackAuth;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json.Linq;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace Test.LibHashBackAuth
@@ -187,6 +188,70 @@ namespace Test.LibHashBackAuth
             Assert.AreEqual(1, capture.CapturedNow);
             Assert.AreEqual(1, capture.CapturedRounds);
             Assert.AreEqual("file:" + expectedVerify, capture.CapturedVerify?.ToString());
+        }
+
+        /// <summary>
+        /// Generates a HashBack auth header, but with a repeatable Unus property.
+        /// (For testing the Unus-reuse detector.)
+        /// </summary>
+        /// <param name="unusNumber">Which of a sequence to create.</param>
+        /// <returns>Completed auth header value.</returns>
+        private static string BuildJsonWithRepeatableUnus(int unusNumber)
+        {
+            /* Generate bytes using a repeatable method. (Only need 128 bits.) */
+            var hashInput = Encoding.ASCII.GetBytes("RepeatableUnus" + unusNumber);
+            var unusAsBytes = SHA256.HashData(hashInput);
+            var unusAsBase64 = Convert.ToBase64String(unusAsBytes, 0, 16);
+
+            /* Generate JSON using fixed values except Unus. */
+            var authAsJson = new JObject
+            {
+                ["Version"] = "BILLPG_DRAFT_4.0",
+                ["Host"] = "x",
+                ["Now"] = 1,
+                ["Unus"] = unusAsBase64,
+                ["Rounds"] = 1,
+                ["Verify"] = "https://y/"
+            };
+
+            /* Convert JSON to string, then bytes, then base-64. */
+            var jsonAsString = authAsJson.ToString(Newtonsoft.Json.Formatting.None);
+            var jsonAsBytes = Encoding.ASCII.GetBytes(jsonAsString);
+            var jsonAsBase64 = Convert.ToBase64String(jsonAsBytes);
+
+            /* Return completed string. */
+            return "HashBack " + jsonAsBase64;
+        }
+
+        [TestMethod]
+        public void UnusReuseDetector()
+        {
+            /* Start a parser that will accept all inputs. */
+            var parser = new ParseHashBackAuth();
+            TestTools.ParserCapture.Set(parser);
+
+            /* Loop, parsing two thousand JSON strings,
+             * filling up the reuse-detection collector,
+             * checking it responds as valid each time. */
+            for (int i = 0; i < 2000; i++)
+            {
+                var result = parser.Parse(BuildJsonWithRepeatableUnus(i));
+                Assert.IsNull(result.ErrorText);
+                Assert.IsNotNull(result.VerifyUrl);
+                Assert.IsNotNull(result.ExpectedHash);
+            }
+
+            /* An Unus string from the first thousand should be okay. */
+            var result920 = parser.Parse(BuildJsonWithRepeatableUnus(920));
+            Assert.IsNull(result920.ErrorText);
+            Assert.IsNotNull(result920.VerifyUrl);
+            Assert.IsNotNull(result920.ExpectedHash);
+
+            /* An Unus string from the second thousand should be off limits. */
+            var result1984 = parser.Parse(BuildJsonWithRepeatableUnus(920));
+            Assert.AreEqual("Unus property has been reused.", result1984.ErrorText);
+            Assert.IsNull(result1984.VerifyUrl);
+            Assert.IsNull(result1984.ExpectedHash);
         }
     }
 }
