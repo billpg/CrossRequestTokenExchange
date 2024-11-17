@@ -135,5 +135,64 @@ namespace LibHashBackAuth
             /* Encode those bytes as BASE64, including the trailing equals. */
             return Convert.ToBase64String(randomBytes);
         }
+
+        /// <summary>
+        /// Attempt to parse the supplied string as a URL, returning null
+        /// if not valid
+        /// </summary>
+        /// <param name="url">String to parse.</param>
+        /// <returns>Parsed URL or NULL.</returns>
+        internal static Uri? TryParseUrl(string url)
+        {
+            /* Attempt to parse the string, and if valid, return it. */
+            try
+            {
+                return new Uri(url);
+            }   
+            /* Catch either exception that means "the URL is invalid"
+             * and return null. (Other exceptions, allow to fall.) */
+            catch (Exception ex) 
+                when (ex is UriFormatException || ex is FormatException)
+            {
+                /* Not valid, so return null. */                
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Validates supplied Unus value, returning zero if
+        /// not valid, or a non-zero hash value suitable for 
+        /// reuse checking if valid.
+        /// </summary>
+        /// <param name="unus">Supplied Unus value.</param>
+        /// <returns>Zero if not valid. Non-zero hash is valid.</returns>
+        internal static long ValidateUnusAndHash(string unus)
+        {
+            /* Attempt to decode base64, returning zero if not. */
+            byte[] unusAsBytes;
+            try
+            {
+                unusAsBytes = Convert.FromBase64String(unus);
+            }
+            catch (FormatException)
+            {
+                return 0;
+            }
+
+            /* Return zero if not exactly expected length. */
+            if (unusAsBytes.Length != 128 / 8)
+                return 0;
+
+            /* Loop through each byte index in unus, XORing that byte into its
+             * place in the hash. Jumping the shifting place by 3 means the 
+             * last byte XORs with bits 48-55. */
+            long hash = 0;
+            for (int unusIndex = 0; unusIndex < unus.Length; unusIndex++)
+                hash ^= ((long)unus[unusIndex]) << (unusIndex * 3);
+
+            /* Completed hash. Add a fixed number so the decimal form is the same
+             * length. (16 zeros just exceeds the maximum from the above loop.) */
+            return hash + 10000000000000000L;
+        }
     }
 }

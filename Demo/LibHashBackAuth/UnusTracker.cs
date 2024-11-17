@@ -20,11 +20,17 @@ namespace LibHashBackAuth
         /// </summary>
         private const int maxUsedHashCount = 999;
 
-        internal bool IsReused(byte[] unus)
+        /// <summary>
+        /// Tests if the supplied Unus string (in byte form) has
+        /// already been used. If not, adds hash of bytes to list.
+        /// </summary>
+        /// <param name="unus">Supplied Unus string in byte form.</param>
+        /// <returns>
+        /// True if Unus has already been used.
+        /// False if this is the first time.
+        /// </returns>
+        internal bool IsReused(long hash)
         {
-            /* Calculate the hash from these bytes. */
-            long hash = HashUnus(unus);
-
             /* Lock the collection for thread safety. */
             lock (usedHashes)
             {
@@ -45,20 +51,6 @@ namespace LibHashBackAuth
                 /* Return indicating the hash is new. */
                 return false;
             }
-        }
-
-        private long HashUnus(byte[] unus)
-        {
-            /* Loop through each byte index in unus, XORing that byte into its
-             * place in the hash. Jumping the shifting place by 3 means the 
-             * last byte XORs with bits 48-55. */
-            long hash = 0;
-            for (int unusIndex = 0; unusIndex < unus.Length; unusIndex++)
-                hash ^= ((long)unus[unusIndex]) << (unusIndex * 3);
-
-            /* Completed hash. Add a fixed number so the decimal form is the same
-             * length. (16 zeros just exceeds the maximum from the above loop.) */
-            return hash + 10000000000000000L;
         }
     }
 }

@@ -1,36 +1,36 @@
-﻿
+﻿using System.Text;
 using Newtonsoft.Json.Linq;
-using System.Security.Cryptography;
-using System.Text;
 
 namespace LibHashBackAuth
 {
-    public enum ParseState
-    {
-        NotValid,
-        NeedsVerification
-    }
-
     public class ParseResult
     {
-        public readonly ParseState State;
         public readonly string? ErrorText;
         public readonly Uri? VerifyUrl;
         public readonly string? ExpectedHash;
 
-        public ParseResult(ParseState state, string? errorText, Uri? verifyUrl, string? expectedHash)
+        public bool IsRejected => ErrorText != null;
+        public bool IsVerificationNeeded => VerifyUrl != null;
+
+        private ParseResult(string? errorText, Uri? verifyUrl, string? expectedHash)
         {
-            this.State = state;
             this.ErrorText = errorText;
             this.VerifyUrl = verifyUrl;
             this.ExpectedHash = expectedHash;
         }
 
         internal static ParseResult NotValid(string errorText)
-            => new ParseResult(ParseState.NotValid, errorText, null, null);
+        {
+            ArgumentNullException.ThrowIfNull(errorText);
+            return new ParseResult(errorText, null, null);
+        }
 
         internal static ParseResult Verification(Uri verifyAsUrl, string expectedHash)
-            => new ParseResult(ParseState.NeedsVerification, null, verifyAsUrl, expectedHash);
+        {
+            ArgumentNullException.ThrowIfNull(verifyAsUrl);
+            ArgumentNullException.ThrowIfNull(expectedHash);
+            return new ParseResult(null, verifyAsUrl, expectedHash);
+        }
     }
 
     public class ParseHashBackAuth
@@ -105,7 +105,7 @@ namespace LibHashBackAuth
             if (string.IsNullOrEmpty(authHeader))
                 return ParseResult.NotValid("Header is null/missing.");
 
-            /* Remove "HashBack" header prefix if present and continue without the prefix. */
+            /* If header starts with "HashBack", remove it. */
             var headerBySpace = authHeader.Split(
                 " \r\n\t".ToCharArray(), 
                 StringSplitOptions.RemoveEmptyEntries)
@@ -138,9 +138,9 @@ namespace LibHashBackAuth
             {
                 headerAsJson = JObject.Parse(authHeader);
             }
-            catch (Exception ex) /* TODO: Catch only bad-json error. */
+            catch (Newtonsoft.Json.JsonReaderException ex)
             {
-                return ParseResult.NotValid("Supplier JSON is invalid. " + ex.Message);
+                return ParseResult.NotValid("Supplied JSON is invalid. " + ex.Message);
             }
 
             /* Start pulling out JSON properties, starting with Version. */
@@ -171,10 +171,10 @@ namespace LibHashBackAuth
             string? suppliedUnus = headerAsJson["Unus"]?.Value<string>();
             if (suppliedUnus == null)
                 return ParseResult.NotValid("Unus property is missing.");
-            byte[]? unusAsBytes = DecodeUnus(suppliedUnus);
-            if (unusAsBytes == null)
+            long unusHash = InternalTools.ValidateUnusAndHash(suppliedUnus);
+            if (unusHash == 0)
                 return ParseResult.NotValid("Unus property is not valid.");
-            if (unusTracker.IsReused(unusAsBytes))
+            if (unusTracker.IsReused(unusHash))
                 return ParseResult.NotValid("Unus property has been reused.");
 
             /* Rounds */
@@ -189,7 +189,7 @@ namespace LibHashBackAuth
             string? suppliedVerify = headerAsJson["Verify"]?.Value<string>();
             if (suppliedVerify == null)
                 return ParseResult.NotValid("Verify property is missing.");
-            Uri? verifyAsUrl = TryParseUrl(suppliedVerify);
+            Uri? verifyAsUrl = InternalTools.TryParseUrl(suppliedVerify);
             if (verifyAsUrl == null)
                 return ParseResult.NotValid("Verify property is not a valid URL.");
             string? verifyError = this.IsVerifyValid(verifyAsUrl);
@@ -202,41 +202,6 @@ namespace LibHashBackAuth
 
             /* Return collected properties as success result. */
             return ParseResult.Verification(verifyAsUrl, expectedHash);
-        }
-
-
-
-        private static Uri? TryParseUrl(string url)
-        {
-            try
-            {
-                return new Uri(url);
-            }
-            catch (Exception) /* TODO Replace with URL parse exception. */
-            {
-                return null;
-            }
-        }
-
-        private static byte[]? DecodeUnus(string unus)
-        {
-            /* Attempt to decode base64, returning null if not. */
-            byte[] unusAsBytes;
-            try
-            {
-                unusAsBytes = Convert.FromBase64String(unus);
-            }
-            catch (FormatException)
-            {
-                return null;
-            }
-
-            /* Return null if not exactly expected length. */
-            if (unusAsBytes.Length != 128 / 8)
-                return null;
-
-            /* Return array as passed tests. */
-            return unusAsBytes;
         }
     }
 }

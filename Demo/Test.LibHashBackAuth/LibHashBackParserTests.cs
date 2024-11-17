@@ -1,6 +1,8 @@
 using LibHashBackAuth;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json.Linq;
+using System;
+using System.Reflection.Metadata.Ecma335;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -85,7 +87,7 @@ namespace Test.LibHashBackAuth
             var result = parser.Parse(authHeader);
 
             /* Check response. */
-            Assert.AreEqual(ParseState.NeedsVerification, result.State);
+            Assert.IsTrue(result.IsVerificationNeeded);
             Assert.AreEqual("https://client.example/hashback?id=-925769", result.VerifyUrl?.ToString());
             Assert.AreEqual("8UkPR3Vxjmj/xVe7inMT+O7ALKclnPILlt7puKQUGGI=", result.ExpectedHash);
 
@@ -142,15 +144,9 @@ namespace Test.LibHashBackAuth
              * with a Host property that can be relied upon to
              * produce a / and + when Base64 encoded. */
             const string TestHostString = ">>>>>>??????";
-            var authAsJson = new JObject
-            {
-                ["Version"] = "BILLPG_DRAFT_4.0",
-                ["Host"] = TestHostString,
-                ["Now"] = 1,
-                ["Unus"] = "RutabagaRutabagaRutaba==",
-                ["Rounds"] = 1,
-                ["Verify"] = expectedVerify
-            };
+            var authAsJson = TestTools.MakeJsonRequest(
+                host: TestHostString,
+                verify: expectedVerify);
 
             /* Convert this JSON to string, then bytes, then Base64. */
             var authAsString = authAsJson.ToString();
@@ -177,7 +173,7 @@ namespace Test.LibHashBackAuth
             var result = parser.Parse(authAsHeader);
 
             /* Check the result was accepted. */
-            Assert.AreEqual(ParseState.NeedsVerification, result.State);
+            Assert.IsTrue(result.IsVerificationNeeded);
             Assert.IsNull(result.ErrorText);
 
             /* Hash the bytes according to the HashBack rules. */
@@ -185,7 +181,7 @@ namespace Test.LibHashBackAuth
 
             /* Check the captured values called by the parser are as expected. */
             Assert.AreEqual(TestHostString, capture.CapturedHost);
-            Assert.AreEqual(1, capture.CapturedNow);
+            Assert.AreEqual(100, capture.CapturedNow);
             Assert.AreEqual(1, capture.CapturedRounds);
             Assert.AreEqual("file:" + expectedVerify, capture.CapturedVerify?.ToString());
         }
@@ -204,15 +200,7 @@ namespace Test.LibHashBackAuth
             var unusAsBase64 = Convert.ToBase64String(unusAsBytes, 0, 16);
 
             /* Generate JSON using fixed values except Unus. */
-            var authAsJson = new JObject
-            {
-                ["Version"] = "BILLPG_DRAFT_4.0",
-                ["Host"] = "x",
-                ["Now"] = 1,
-                ["Unus"] = unusAsBase64,
-                ["Rounds"] = 1,
-                ["Verify"] = "https://y/"
-            };
+            var authAsJson = TestTools.MakeJsonRequest(unus: unusAsBase64);
 
             /* Convert JSON to string, then bytes, then base-64. */
             var jsonAsString = authAsJson.ToString(Newtonsoft.Json.Formatting.None);
@@ -252,6 +240,192 @@ namespace Test.LibHashBackAuth
             Assert.AreEqual("Unus property has been reused.", result1984.ErrorText);
             Assert.IsNull(result1984.VerifyUrl);
             Assert.IsNull(result1984.ExpectedHash);
+        }
+
+        [TestMethod]
+        public void ParserRejectsEmptyString()
+        {
+            /* Call parser with an empty string. */
+            var result = new ParseHashBackAuth().Parse("");
+
+            /* Expect a specific error back. */
+            Assert.AreEqual("Header is null/missing.", result.ErrorText);
+        }
+
+        [TestMethod]
+        public void ParserRejectsCRLF()
+        {
+            /* Call parser with an empty string. */
+            var result = new ParseHashBackAuth().Parse("\r\n");
+
+            /* Expect a specific error back. */
+            Assert.AreEqual("Supplied JSON is invalid." +
+                " Error reading JObject from JsonReader." +
+                " Path '', line 0, position 0.",
+                result.ErrorText);
+        }
+
+        [TestMethod]
+        public void ParserRejectsAuthorizationHashBackOnly()
+        {
+            /* Invoke parser but there's no base-64 block at all. */
+            var result = new ParseHashBackAuth().Parse("HashBack");
+
+            /* Expect a specific error back, because "HashBack"
+             * also happens to be a valid base-64 block. */
+            Assert.AreEqual("Supplied JSON is invalid." +
+                " Unexpected character encountered while parsing value:" +
+                " \u001d. Path '', line 0, position 0.",
+                result.ErrorText);
+        }
+
+        [TestMethod]
+        public void ParserRejectsBadJson()
+        {
+            /* Invoke parser, supplying a series of open-curly-braces. */
+            var result = new ParseHashBackAuth().Parse("HashBack {{{{");
+
+            /* Expect a specific error back. */
+            Assert.AreEqual(
+                "Supplied JSON is invalid." +
+                " Invalid property identifier character:" +
+                " {. Path '', line 1, position 1.",
+                result.ErrorText);
+        }
+
+        [TestMethod]
+        public void ParserRejectsMissingJsonProperties()
+        {
+            var propertyNames = new string[]
+            {
+                "Version", "Host", "Now",
+                "Unus", "Rounds", "Verify"
+            };
+
+            foreach (string propName in propertyNames)
+            {
+                ParseExpectingError(
+                    j => j.Remove(propName), p => { },
+                    $"{propName} property is missing.");
+            }
+        }
+
+        [TestMethod]
+        public void ParserRejectsWrongVersion()
+            => ParseExpectingError(
+                j => j["Version"] = "RUTABAGA_1.0", p => { },
+                "Only Version=BILLPG_DRAFT_4.0 is supported.");
+
+        [TestMethod]
+        public void ParserRejectsEmptyUnus()
+            => ParseExpectingInvalidUnus("");
+
+        [TestMethod]
+        public void ParserRejectsShortUnus()
+            => ParseExpectingInvalidUnus("Rutabaga");
+
+        [TestMethod]
+        public void ParserRejectsLongUnus()
+            => ParseExpectingInvalidUnus("RutabagaRutabagaRutabagaRutabaga");
+
+        [TestMethod]
+        public void ParserRejectsNotBase64Unus()
+            => ParseExpectingInvalidUnus("-=-=-=-=-=-=");
+
+        private void ParseExpectingInvalidUnus(string unus)
+            => ParseExpectingError(
+                j => j["Unus"] = unus, p => { },
+                "Unus property is not valid.");
+
+        [TestMethod]
+        public void ParseRejectsWrongHost()
+            => ParseExpectingError(
+                j => { },
+                p => p.SetRequiredHost("different.example"),
+                "Host property must be \"different.example\".");
+
+        [TestMethod]
+        public void ParseRejectsFarPast()
+            => ParseExpectingError(
+                j => j["Now"] = 100,
+                p => p.SetClockService(TestTools.FixedNow(99999), 10),
+                "Supplied Now property is too far in the past.");
+
+        [TestMethod]
+        public void ParseRejectsFarFuture()
+            => ParseExpectingError(
+                j => j["Now"] = 99999,
+                p => p.SetClockService(TestTools.FixedNow(100), 10),
+                "Supplied Now property is too far in the future.");
+
+        [TestMethod]
+        public void ParseRejectsTooFewRounds()
+            => ParseExpectingError(
+                j => { },
+                p => p.SetRoundsLimit(2,9),
+                "Rounds property is too small. Valid range: 2-9.");
+
+        [TestMethod]
+        public void ParseRejectsTooManyRounds()
+            => ParseExpectingError(
+                j => j["Rounds"] = 10,
+                p => p.SetRoundsLimit(2, 9),
+                "Rounds property is too large. Valid range: 2-9.");
+
+        [TestMethod]
+        public void ParseRejectsEmptyVerify()
+            => ParseRejectsInvalidVerifyUrl("");
+
+        [TestMethod]
+        public void ParseRejectsBadVerify()
+            => ParseRejectsInvalidVerifyUrl("Not-A-URL!");
+
+        [TestMethod]
+        public void ParseRejectsUnknownVerifyUrlScheme()
+            => ParseRejectsInvalidVerifyUrl("!://example.com/x.txt");
+
+        [TestMethod]
+        public void ParseRejectsVerifyTooManySlashes()
+            => ParseRejectsInvalidVerifyUrl("https:///example.com/x.txt");
+
+        [TestMethod]
+        public void ParseRejectsVerifyOnlyOneSlash()
+            => ParseRejectsInvalidVerifyUrl("https:/example.com/x.txt");
+
+        private void ParseRejectsInvalidVerifyUrl(string url)
+            => ParseExpectingError(
+                j => j["Verify"] = url,
+                p => { },
+                "Verify property is not a valid URL.");
+
+        [TestMethod]
+        public void ParseRejectsAnyInvalidVerifyUrl()
+            => ParseExpectingError(
+                j => { },
+                p => p.IsVerifyValid = url => "no!",
+                "no!");
+        
+        private void ParseExpectingError(
+            Action<JObject> modJson, 
+            Action<ParseHashBackAuth> modParser, 
+            string expectedErrorText)
+        {
+            /* Make a JSON object but modify it per the caller. */
+            var auth = TestTools.MakeJsonRequest();
+            modJson(auth);
+            var authAsBase64 = TestTools.JObjectToBase64(auth);
+
+            /* Invoke parser with "accept anything" handlers,
+             * allowing the call to make a last minute change. */
+            var parser = new ParseHashBackAuth();
+            TestTools.ParserCapture.Set(parser);
+            modParser(parser);
+            var result = parser.Parse(authAsBase64);
+
+            /* Check expected error. */
+            Assert.AreEqual(expectedErrorText, result.ErrorText);
+            Assert.IsNull(result.VerifyUrl);
+            Assert.IsNull(result.ExpectedHash);
         }
     }
 }

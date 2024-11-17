@@ -1,5 +1,7 @@
 ﻿using LibHashBackAuth;
 using Microsoft.VisualStudio.TestPlatform.Utilities;
+using Microsoft.VisualStudio.TestTools.UnitTesting.Logging;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -75,13 +77,7 @@ namespace Test.LibHashBackAuth
         /// <param name="rounds">Number of PBKDF2 rounds.</param>
         /// <returns>Hash string.</returns>
         internal static string CalculateHash(byte[] auth, int rounds)
-        {
-            string? hash = calculateHashInternal.Invoke(null, [auth, rounds]) as string;
-            if (hash == null)
-                throw new NullReferenceException();
-            return hash;
-        }
-
+            => (string)calculateHashInternal.Invoke(null, [auth, rounds])!;
 
         /// <summary>
         /// Handy collection of the two Boolean values.
@@ -104,6 +100,51 @@ namespace Test.LibHashBackAuth
                 foreach (Ty y in ys)
                     foreach (Tz z in zs)
                         yield return (x, y, z);
+        }
+
+        internal static JObject MakeJsonRequest(
+            string version = "BILLPG_DRAFT_4.0",
+            string host = "host.example",
+            long now = 100,
+            string unus = "RutabagaRutabagaRutaba==",
+            int rounds = 1,
+            string verify = "https://verify.example")
+        {
+            return new JObject
+            {
+                ["Version"] = version,
+                ["Host"] = host,
+                ["Now"] = now,
+                ["Unus"] = unus,
+                ["Rounds"] = rounds,
+                ["Verify"] = verify
+            };
+        }
+
+        internal static string JObjectToBase64(JObject j)
+        {
+            /* Convert JSON to a single line string. */
+            var asString = j.ToString(Newtonsoft.Json.Formatting.None);
+
+            /* Convert string to UTF8 bytes with no BOM marker. */
+            var asBytes = Encoding.UTF8.GetBytes(asString);
+
+            /* Return UTF8 bytes in base-64 form. */
+            return Convert.ToBase64String(asBytes);
+        }
+
+        /// <summary>
+        /// Return a callable object that returns the
+        /// supplied "now" value on demand.
+        /// </summary>
+        /// <param name="now">Value callable function returns.</param>
+        /// <returns>Callable.</returns>
+        internal static Func<long> FixedNow(long now)
+        {
+            /* Return the internal function that can
+             * "see" the parameter value. */
+            return Internal;
+            long Internal() => now;
         }
     }
 }
